@@ -109,9 +109,6 @@ public class Controller2 {
         return (actual == localPort2) ? localPort1 : localPort2;
     }
 
-    // ----------------------------
-    // PUENTE: mensajes juego <-> red
-    // ----------------------------
 
     // llega de red -> se lo paso al ControllerMain -> GameController
     public void introducirBola(BolaDTO bolaDTO) { master.introducirBola(bolaDTO); }
