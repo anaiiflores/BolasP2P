@@ -39,19 +39,16 @@ public class Controller2 {
 
     public boolean isValid() {
         return channel.isValid();
+
     }
 
-    public boolean isValid(Socket socket) {
-        boolean ok = channel.isValid();
-        if (!ok) setSocket(socket);
-        return ok;
-    }
+
 
     public void setSocket(Socket socket) {
         channel.setSocket(socket);
     }
 
-    // Solo para localhost (si usas 2 puertos en un mismo PC)
+    // Solo para localhost
     public int getAvailablePort() {
         while (!serverConnector.isConected()) {
             try { Thread.sleep(10); } catch (InterruptedException ignored) {}
@@ -60,31 +57,12 @@ public class Controller2 {
         return (actual == localPort2) ? localPort1 : localPort2;
     }
 
-    public int getActualListenPort() {
-        while (!serverConnector.isConected()) {
-            try { Thread.sleep(10); } catch (InterruptedException ignored) {}
-        }
-        return serverConnector.getActualPort();
-    }
 
-    // ===== puente hacia juego =====
+
+    //puentee
     public void introducirBola(BolaDTO bolaDTO) { master.introducirBola(bolaDTO); }
     public void lanzarBola(BolaDTO bolaDTO) { channel.lanzarBola(bolaDTO); }
 
     public void introducirSprite(SpriteDTO dto) { master.introducirSprite(dto); }
     public void lanzarSprite(SpriteDTO dto) { channel.lanzarSprite(dto); }
-    private volatile boolean reconnecting = false;
-
-    public void onChannelDown() {
-        if (reconnecting) return;
-        reconnecting = true;
-
-        new Thread(() -> {
-            while (!isValid()) {
-                try { Thread.sleep(500); } catch (InterruptedException ignored) {}
-            }
-            reconnecting = false;
-            System.out.println("[Controller2] ✅ Canal válido otra vez");
-        }, "Reconnector").start();
-    }
 }

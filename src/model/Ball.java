@@ -28,8 +28,6 @@ public class Ball {
         this.vy = vy;
     }
 
-    public long getId() { return id; }
-
     public float getX() { return x; }
     public float getY() { return y; }
     public float getR() { return r; }
@@ -37,10 +35,6 @@ public class Ball {
     public float getVx() { return vx; }
     public float getVy() { return vy; }
 
-    public void setX(float x) { this.x = x; }
-    public void setY(float y) { this.y = y; }
-    public void setVx(float vx) { this.vx = vx; }
-    public void setVy(float vy) { this.vy = vy; }
 
     /**
      * Avanza la física.
@@ -57,7 +51,7 @@ public class Ball {
 
         if (y - r < top) {
             y = top + r;
-            vy = -vy * 0.98f; // pequeña pérdida para que se vea "natural"
+            vy = -vy * 0.98f;
         } else if (y + r > bottom) {
             y = bottom - r;
             vy = -vy * 0.98f;
@@ -69,8 +63,5 @@ public class Ball {
         return (x - r) > (bounds.x + bounds.width);
     }
 
-    /** (Opcional) útil para pintar rápido */
-    public Rectangle2D.Float getAABB() {
-        return new Rectangle2D.Float(x - r, y - r, r * 2f, r * 2f);
-    }
+
 }

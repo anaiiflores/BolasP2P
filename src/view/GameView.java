@@ -49,7 +49,6 @@ public class GameView extends JPanel {
             g2.setColor(new Color(0, 0, 0, 25));
             g2.drawRect(0, 0, getWidth() - 1, getHeight() - 1);
 
-            // ✅ bolas rosas
             Color bolaColor = new Color(231, 111, 170);
             g2.setColor(bolaColor);
 
@@ -66,20 +65,14 @@ public class GameView extends JPanel {
                 g2.setColor(bolaColor);
             }
 
-            // texto
-            g2.setColor(new Color(0, 0, 0, 120));
-            g2.drawString("Bolas P2P", 10, 18);
-
-            // ✅ sprite
             if (spriteFrame != null) {
                 g2.drawImage(spriteFrame, spriteX, spriteY, null);
             }
 
+
+
         } finally {
             g2.dispose();
         }
-
-
-
-        }
     }
+}

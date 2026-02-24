@@ -34,7 +34,7 @@ public class SC implements Runnable {
                     Socket socket = serverSocket.accept();
                     System.out.println("[ServerConnector] Conexión entrante: " + socket.getInetAddress());
 
-                    // Si todavía no hay socket válido en comunications.channel.Channel, lo usamos
+                    // si todavía no hay socket válido , lo usamos
                     if (!comController.isValid()) {
                         comController.setSocket(socket);
                     } else {
@@ -51,7 +51,6 @@ public class SC implements Runnable {
                     serverSocket = null;
                 }
             } else {
-                // Ya conectado: no hace falta aceptar cada milisegundo
                 sleep(3000);
             }
         }

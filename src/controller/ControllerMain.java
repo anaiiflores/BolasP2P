@@ -10,93 +10,114 @@ import java.util.Enumeration;
 
 public class ControllerMain {
 
-    private static final String IP_EQUIPO_1 = "192.168.1.137";
-    private static final String IP_EQUIPO_2 = "192.168.1.217";
+    // IPs de los peers
+    private static final String IP_PEER_A = "10.162.201.235";
+    private static final String IP_PEER_B = "10.162.201.74";
 
-    private static final int MAIN_PORT = 5000;
-    private static final int AUX_PORT  = 5001;
+    // Puertos de comunicación
+    private static final int PRIMARY_PORT   = 5000;
+    private static final int SECONDARY_PORT = 5001;
 
-    private final GameController controlador;
-    private final Controller2 comunicaciones;
+    private final GameController gameController;
+    private final Controller2 networkController;
 
     public ControllerMain() {
 
-        String miIP = obtenerMiIP();
+        String localIp = detectLocalIp();
 
-        String label;
-        String ipRemota;
+        String peerId;
+        String remoteIp;
 
-        if (miIP != null && miIP.equals(IP_EQUIPO_1)) {
-            label = "A";
-            ipRemota = IP_EQUIPO_2;
-        } else if (miIP != null && miIP.equals(IP_EQUIPO_2)) {
-            label = "B";
-            ipRemota = IP_EQUIPO_1;
+        if (localIp != null && localIp.equals(IP_PEER_A)) {
+            peerId = "A";
+            remoteIp = IP_PEER_B;
+
+        } else if (localIp != null && localIp.equals(IP_PEER_B)) {
+            peerId = "B";
+            remoteIp = IP_PEER_A;
+
         } else {
-            label = "A";
-            ipRemota = "localhost";
-            System.out.println("MODO LOCAL: usando localhost");
+            peerId = "A";
+            remoteIp = "localhost";
+            System.out.println("[ControllerMain] MODO LOCAL: usando localhost");
         }
 
-        System.out.println("Mi IP: " + miIP + " | Soy: " + label + " | Remota: " + ipRemota);
+        System.out.println(
+                "[ControllerMain] Local IP: " + localIp +
+                        " | Peer: " + peerId +
+                        " | Remote IP: " + remoteIp
+        );
 
-        // 1) UI primero
-        MainFrame frame = new MainFrame("Bolas P2P - Peer " + label + " (port " + MAIN_PORT + ")", 720, 420);
+        //  UI
+        MainFrame frame = new MainFrame(
+                "Bolas P2P - Peer " + peerId + " (port " + PRIMARY_PORT + ")",
+                720,
+                420
+        );
         frame.setVisible(true);
 
-        // 2) Controller del juego listo ANTES de que llegue nada por red
-        this.controlador = new GameController(frame, label, this);
+        // Lógica de juego
+        this.gameController = new GameController(frame, peerId, this);
 
-        // 3) Ahora sí: comunicaciones (arranca ChannelReader, etc.)
-        this.comunicaciones = new Controller2(this, ipRemota, MAIN_PORT, AUX_PORT);
+        // Comunicaciones P2P
+        this.networkController =
+                new Controller2(this, remoteIp, PRIMARY_PORT, SECONDARY_PORT);
 
-        // movimiento inicial
-        controlador.spawnLocalBall();
-        controlador.spawnLocalBall();
+        //  Estado inicial
+        gameController.spawnLocalBall();
+        gameController.spawnLocalBall();
     }
 
-    private String obtenerMiIP() {
+    // Detección IP local
+    private String detectLocalIp() {
         try {
-            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            Enumeration<NetworkInterface> interfaces =
+                    NetworkInterface.getNetworkInterfaces();
+
             while (interfaces.hasMoreElements()) {
                 NetworkInterface iface = interfaces.nextElement();
+
                 if (!iface.isUp() || iface.isLoopback()) continue;
 
-                Enumeration<InetAddress> addrs = iface.getInetAddresses();
-                while (addrs.hasMoreElements()) {
-                    InetAddress addr = addrs.nextElement();
+                Enumeration<InetAddress> addresses = iface.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    InetAddress addr = addresses.nextElement();
+
                     if (addr instanceof Inet4Address) {
                         String ip = addr.getHostAddress();
-                        if (ip.startsWith("192.168.") || ip.startsWith("172.16.") || ip.startsWith("10.")) {
+
+                        if (ip.startsWith("10.")
+                                || ip.startsWith("172.16.")
+                                || ip.startsWith("192.168.")) {
                             return ip;
                         }
                     }
                 }
             }
+
             return InetAddress.getLocalHost().getHostAddress();
+
         } catch (Exception e) {
             return null;
         }
     }
 
-    // ===== puente =====
 
     public void introducirBola(BolaDTO bolaDTO) {
-        if (controlador == null) return;
-        controlador.introducirBola(bolaDTO);
+        if (gameController == null) return;
+        gameController.introducirBola(bolaDTO);
     }
 
     public void lanzarBola(BolaDTO bolaDTO) {
-        comunicaciones.lanzarBola(bolaDTO);
+        networkController.lanzarBola(bolaDTO);
     }
 
     public void introducirSprite(SpriteDTO dto) {
-        if (controlador == null) return;
-
-        controlador.introducirSprite(dto);
+        if (gameController == null) return;
+        gameController.introducirSprite(dto);
     }
 
     public void lanzarSprite(SpriteDTO dto) {
-        comunicaciones.lanzarSprite(dto);
+        networkController.lanzarSprite(dto);
     }
 }

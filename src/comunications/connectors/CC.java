@@ -6,13 +6,7 @@ import java.io.IOException;
 import java.net.Socket;
 import java.util.Objects;
 
-/**
- * ClientConnector:
- * - Si no hay conexión válida, intenta conectar.
- * - En localhost usa comController.getAvailablePort() (clave para 1 PC).
- * - En red intenta mainPort y si falla auxPort.
- * - Reintenta cada 5s si falla (como tu compi).
- */
+
 public class CC implements Runnable {
 
     private final Controller2 comController;
@@ -31,13 +25,13 @@ public class CC implements Runnable {
         Socket socket;
 
         while (true) {
-            // Solo conectar si NO hay conexión válida
+            // sssolo conectar si NO hay conexión válida
             if (!comController.isValid()) {
 
                 socket = null;
 
                 if (Objects.equals(HOST, "localhost") || Objects.equals(HOST, "127.0.0.1")) {
-                    // ✅ Modo 1 PC: conecto al puerto "que toca"
+                    // Modo 1 PC: conecto al puerto "que toca"
                     int port = comController.getAvailablePort();
                     try {
                         socket = new Socket("127.0.0.1", port);
@@ -49,7 +43,7 @@ public class CC implements Runnable {
                     }
 
                 } else {
-                    // ✅ Modo 2 PCs: pruebo mainPort y si falla auxPort
+                    // Modo 2 PCs: pruebo mainPort y si falla auxPort
                     try {
                         socket = new Socket(HOST, mainPort);
                         System.out.println("[ClientConnector] Conectado a " + HOST + ":" + mainPort);
@@ -65,13 +59,12 @@ public class CC implements Runnable {
                     }
                 }
 
-                // Si conectó, lo paso al channel
+                // si conectó, lo paso al channel
                 if (socket != null && socket.isConnected()) {
                     comController.setSocket(socket);
                 }
 
             } else {
-                // Ya hay conexión: descanso un poco
                 sleep(3000);
             }
         }
