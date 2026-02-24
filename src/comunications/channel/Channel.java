@@ -113,6 +113,7 @@ public class Channel implements Runnable {
     }
 
     // ===== RECEPCIÓN =====
+
     @Override
     public void run() {
         while (true) {
@@ -172,7 +173,6 @@ public class Channel implements Runnable {
         closeInternal();
     }
 
-    /** Cierra TODO de esta conexión. No mata el hilo reader; el hilo espera reconexión. */
     private synchronized void closeInternal() {
         running = false;
 
