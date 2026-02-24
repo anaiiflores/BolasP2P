@@ -2,12 +2,10 @@ package view;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 
-/**
- * MainFrame (vista):
- * - Contiene el GameView y una barra superior simple.
- * - NO contiene lógica de red/juego.
- */
+
 public class MainFrame extends JFrame {
 
     private final JButton btnSpawn = new JButton("LANZA");
@@ -16,7 +14,16 @@ public class MainFrame extends JFrame {
     public MainFrame(String title, int w, int h) {
         super(title);
 
-        setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+        // ✅ NO mates la JVM
+        setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                // Oculta la ventana pero deja la app viva (threads + reconexión)
+                setVisible(false);
+            }
+        });
+
         setLayout(new BorderLayout());
 
         // ===== Barra superior =====
@@ -24,7 +31,6 @@ public class MainFrame extends JFrame {
         top.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         top.setBackground(new Color(255, 243, 181)); // 🌼 amarillo pastel
 
-        // Estilo del botón (opcional pero queda precioso)
         btnSpawn.setFocusPainted(false);
         btnSpawn.setBackground(new Color(255, 214, 102));
         btnSpawn.setFont(btnSpawn.getFont().deriveFont(Font.BOLD, 14f));
@@ -51,7 +57,5 @@ public class MainFrame extends JFrame {
         return btnSpawn;
     }
 
-    // ya no hace nada, pero lo dejamos por compatibilidad
-    public void setConnText(String txt) {
-    }
+    public void setConnText(String txt) { }
 }
