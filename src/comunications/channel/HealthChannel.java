@@ -1,15 +1,13 @@
 package comunications.channel;
 
-
 public class HealthChannel implements Runnable {
 
     private final Channel channel;
-
     private volatile long ultimaRespuesta;
 
-    private static final long TIMEOUT = 10_000;       // 10s
-    private static final long CHECK_INTERVAL = 3_000; // cada 3s
-    private static final long WAIT_PONG = 2_000;      // espera 2s la respuesta
+    private static final long TIMEOUT = 10_000;
+    private static final long CHECK_INTERVAL = 3_000;
+    private static final long WAIT_PONG = 2_000;
 
     public HealthChannel(Channel channel) {
         this.channel = channel;
@@ -19,39 +17,33 @@ public class HealthChannel implements Runnable {
     @Override
     public void run() {
         while (true) {
-            // Si el channel ya no es válido, paramos
-            if (channel == null || !channel.isValid()) break;
 
-            try {
-                Thread.sleep(CHECK_INTERVAL);
-            } catch (InterruptedException e) {
-                break;
+            // ✅ Si no hay conexión, NO muere: espera
+            if (channel == null || !channel.isValid()) {
+                sleepSilently(300);
+                continue;
             }
 
-            // 1) mando ping
-            channel.comprobarConexion();
+            sleepSilently(CHECK_INTERVAL);
 
-            // 2) espero un poco a que llegue el pong
-            try {
-                Thread.sleep(WAIT_PONG);
-            } catch (InterruptedException e) {
-                break;
-            }
+            channel.comprobarConexion(); // ping
+            sleepSilently(WAIT_PONG);
 
-            // 3) si no hay respuesta, cierro
-            long tiempoSinRespuesta = System.currentTimeMillis() - ultimaRespuesta;
-            if (tiempoSinRespuesta > TIMEOUT) {
-                System.out.println("[Health]  Sin respuesta " + (tiempoSinRespuesta / 1000) + "s -> cierro conexión");
+            long sinRespuesta = System.currentTimeMillis() - ultimaRespuesta;
+            if (sinRespuesta > TIMEOUT) {
+                System.out.println("[Health] Sin respuesta " + (sinRespuesta / 1000) + "s -> cierro y fuerzo reconexión");
                 channel.close();
-                break;
+                channel.notifyDown();     // 🔥 clave
+                sleepSilently(500);
             }
         }
-
-        System.out.println("[Health] Thread terminado");
     }
 
-    /** Se llama cuando llega el comunications.MsgDTO code=2 (pong). */
     public synchronized void notifyHealthy() {
         this.ultimaRespuesta = System.currentTimeMillis();
+    }
+
+    private static void sleepSilently(long ms) {
+        try { Thread.sleep(ms); } catch (InterruptedException ignored) {}
     }
 }

@@ -14,15 +14,17 @@ import java.net.Socket;
 public class Channel implements Runnable {
 
     private final String ipRemota;
-    private final Controller2 com;   // ✅ este es tu atributo real
+    private final Controller2 com;
 
-    private Socket socket;
-    private ObjectInputStream in;
-    private ObjectOutputStream out;
+    private volatile Socket socket;
+    private volatile ObjectInputStream in;
+    private volatile ObjectOutputStream out;
 
-    private HealthChannel healthChannel;
-    private Thread readerThread;
-    private Thread healthThread;
+    private volatile HealthChannel healthChannel;
+    private volatile Thread readerThread;
+    private volatile Thread healthThread;
+
+    private volatile boolean stopRequested = false;
 
     public Channel(String ipRemota, Controller2 com) {
         this.ipRemota = ipRemota;
@@ -33,16 +35,26 @@ public class Channel implements Runnable {
         return socket != null && socket.isConnected() && !socket.isClosed() && out != null && in != null;
     }
 
+    public void notifyDown() {
+        com.onChannelDown();
+    }
+
     public synchronized void setSocket(Socket newSocket) {
+        if (stopRequested) {
+            try { if (newSocket != null) newSocket.close(); } catch (IOException ignored) {}
+            return;
+        }
+
+        // si ya hay conexión válida, no la pisamos
         if (isValid()) {
-            try { newSocket.close(); } catch (IOException ignored) {}
+            try { if (newSocket != null) newSocket.close(); } catch (IOException ignored) {}
             return;
         }
 
         closeInternal();
 
         if (newSocket == null || newSocket.isClosed() || !newSocket.isConnected()) {
-            System.out.println("[comunications.channel.Channel] Socket inválido en setSocket()");
+            System.out.println("[Channel] Socket inválido en setSocket()");
             return;
         }
 
@@ -53,37 +65,32 @@ public class Channel implements Runnable {
             out.flush();
             in = new ObjectInputStream(socket.getInputStream());
 
-            healthChannel = new HealthChannel(this);
+            // reader: se arranca UNA vez y se queda vivo
+            if (readerThread == null) {
+                readerThread = new Thread(this, "ChannelReader");
+                readerThread.start();
+            }
 
-            readerThread = new Thread(this, "ChannelReader");
-            readerThread.start();
+            // health: se arranca UNA vez y se queda vivo
+            if (healthThread == null) {
+                healthChannel = new HealthChannel(this);
+                healthThread = new Thread(healthChannel, "HealthChannel");
+                healthThread.start();
+            }
 
-            healthThread = new Thread(healthChannel, "comunications.channel.HealthChannel");
-            healthThread.start();
-
-            System.out.println("[comunications.channel.Channel] ✅ Listo (IP remota: " + ipRemota + ")");
+            System.out.println("[Channel] ✅ Listo (IP remota: " + ipRemota + ")");
 
         } catch (IOException e) {
-            System.out.println("[comunications.channel.Channel] Error creando streams: " + e.getMessage());
+            System.out.println("[Channel] Error creando streams: " + e.getMessage());
             closeInternal();
+            notifyDown();
         }
     }
 
-    // ==========================
-    // ENVÍO (igual estructura que bola)
-    // ==========================
-
-    public void comprobarConexion() {
-        send(new MsgDTO(1, null)); // ping
-    }
-
-    public void lanzarBola(BolaDTO bolaDTO) {
-        send(new MsgDTO(0, bolaDTO));
-    }
-
-    public void lanzarSprite(SpriteDTO dto) {
-        send(new MsgDTO(3, dto));
-    }
+    // ===== envío =====
+    public void comprobarConexion() { send(new MsgDTO(1, null)); }
+    public void lanzarBola(BolaDTO bolaDTO) { send(new MsgDTO(0, bolaDTO)); }
+    public void lanzarSprite(SpriteDTO dto) { send(new MsgDTO(3, dto)); }
 
     private synchronized void send(MsgDTO msg) {
         if (!isValid()) return;
@@ -92,20 +99,22 @@ public class Channel implements Runnable {
             out.writeObject(msg);
             out.flush();
         } catch (IOException e) {
-            System.out.println("[comunications.channel.Channel] Error enviando: " + e.getMessage());
+            System.out.println("[Channel] Error enviando: " + e.getMessage());
             closeInternal();
+            notifyDown();
         }
     }
 
-    // ==========================
-    // RECEPCIÓN
-    // ==========================
-
+    // ===== recepción =====
     @Override
     public void run() {
-        while (true) {
+        while (!stopRequested) {
             try {
-                if (!isValid()) break;
+                // ✅ si no hay socket válido, espera; NO muere
+                if (!isValid()) {
+                    sleepSilently(200);
+                    continue;
+                }
 
                 Object obj = in.readObject();
                 if (!(obj instanceof MsgDTO msg)) continue;
@@ -113,52 +122,35 @@ public class Channel implements Runnable {
                 procesarMensaje(msg);
 
             } catch (EOFException e) {
-                System.out.println("[comunications.channel.Channel] Conexión cerrada por el otro extremo");
-                break;
+                System.out.println("[Channel] Conexión cerrada por el otro extremo");
+                closeInternal();
+                notifyDown();
+                sleepSilently(300);
+
             } catch (IOException e) {
-                System.out.println("[comunications.channel.Channel] Error IO leyendo: " + e.getMessage());
-                break;
+                System.out.println("[Channel] Error IO leyendo: " + e.getMessage());
+                closeInternal();
+                notifyDown();
+                sleepSilently(300);
+
             } catch (ClassNotFoundException e) {
-                System.out.println("[comunications.channel.Channel] Clase no encontrada: " + e.getMessage());
-                break;
+                System.out.println("[Channel] Clase no encontrada: " + e.getMessage());
             }
         }
 
         closeInternal();
-        System.out.println("[comunications.channel.Channel] Thread lector terminado");
+        System.out.println("[Channel] Thread lector detenido");
     }
 
     private void procesarMensaje(MsgDTO msg) {
         switch (msg.getHeader()) {
-
-            case 0: { // ✅ bola (como antes)
-                BolaDTO bola = (BolaDTO) msg.getPayload();
-                com.introducirBola(bola);
-                break;
-            }
-
-            case 1: // ping
-                send(new MsgDTO(2, null));
-                break;
-
-            case 2: // pong
-                if (healthChannel != null) healthChannel.notifyHealthy();
-                break;
-
-            case 3: { // ✅ sprite
-                SpriteDTO dto = (SpriteDTO) msg.getPayload();
-                com.introducirSprite(dto);
-                break;
-            }
-
-            default:
-                System.out.println("[comunications.channel.Channel] Header desconocido: " + msg.getHeader());
+            case 0 -> com.introducirBola((BolaDTO) msg.getPayload());
+            case 1 -> send(new MsgDTO(2, null)); // ping -> pong
+            case 2 -> { if (healthChannel != null) healthChannel.notifyHealthy(); }
+            case 3 -> com.introducirSprite((SpriteDTO) msg.getPayload());
+            default -> System.out.println("[Channel] Header desconocido: " + msg.getHeader());
         }
     }
-
-    // ==========================
-    // CIERRE
-    // ==========================
 
     public synchronized void close() {
         closeInternal();
@@ -172,9 +164,9 @@ public class Channel implements Runnable {
         in = null;
         out = null;
         socket = null;
+    }
 
-        readerThread = null;
-        healthThread = null;
-        healthChannel = null;
+    private static void sleepSilently(long ms) {
+        try { Thread.sleep(ms); } catch (InterruptedException ignored) {}
     }
 }

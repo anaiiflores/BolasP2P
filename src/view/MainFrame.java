@@ -14,7 +14,6 @@ public class MainFrame extends JFrame {
     public MainFrame(String title, int w, int h) {
         super(title);
 
-        // ✅ NO mates la JVM
         setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             @Override
