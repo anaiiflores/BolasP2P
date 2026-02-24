@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 
-
 public class SC implements Runnable {
 
     private final Controller2 comController;
@@ -34,20 +33,25 @@ public class SC implements Runnable {
                 Socket socket = serverSocket.accept();
                 System.out.println("[ServerConnector] Conexión entrante: " + socket.getInetAddress());
 
-                if (!comController.isValid()) {
-                    comController.setSocket(socket);
-                } else {
-                    socket.close();
+                // Si ya hay canal, cierro el socket entrante
+                if (comController.isValid()) {
+                    try { socket.close(); } catch (IOException ignored) {}
+                    continue;
                 }
+
+                // canal aún no válido -> lo monto
+                comController.setSocket(socket);
 
             } catch (IOException e) {
                 System.out.println("[ServerConnector] Error en ServerSocket: " + e.getMessage());
                 try { if (serverSocket != null) serverSocket.close(); } catch (IOException ignored) {}
                 serverSocket = null;
+
+                // descanso corto para no hacer loop infinito si algo va mal
+                sleep(300);
             }
         }
     }
-
 
     private void conectarPuerto() {
         try {
@@ -74,8 +78,6 @@ public class SC implements Runnable {
     }
 
     private void sleep(long ms) {
-        try {
-            Thread.sleep(ms);
-        } catch (InterruptedException ignored) {}
+        try { Thread.sleep(ms); } catch (InterruptedException ignored) {}
     }
 }
