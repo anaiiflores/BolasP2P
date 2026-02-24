@@ -31,10 +31,7 @@ public class SpriteSheetFactory {
         this.spriteSheet = sheet;
     }
 
-    /**
-     * Divide la imagen grande en imágenes pequeñas (frames).
-     * Asume que el spritesheet es una cuadrícula (filas y columnas).
-     */
+//metodo para cortar frames
     private void splitSpriteSheet() {
         frames = new BufferedImage[totalFrames];
 
@@ -100,4 +97,34 @@ public class SpriteSheetFactory {
 
     public void setLoop(boolean loop) { this.loop = loop; }
     public boolean isLoop() { return loop; }
+
+//nuevo metodo para hacerlo transparente
+
+
+    public static BufferedImage makeWhiteTransparent(BufferedImage img) {
+        int w = img.getWidth();
+        int h = img.getHeight();
+
+        BufferedImage transparent =
+                new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int rgba = img.getRGB(x, y);
+
+                int r = (rgba >> 16) & 0xff;
+                int g = (rgba >> 8) & 0xff;
+                int b = rgba & 0xff;
+
+                // Si es casi blanco → transparente
+                if (r > 240 && g > 240 && b > 240) {
+                    transparent.setRGB(x, y, 0x00000000);
+                } else {
+                    transparent.setRGB(x, y, rgba);
+                }
+            }
+        }
+        return transparent;
+    }
+
 }

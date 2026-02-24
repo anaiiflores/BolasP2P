@@ -6,7 +6,13 @@ import java.io.IOException;
 import java.net.Socket;
 import java.util.Objects;
 
-
+/**
+ * CC = ClientConnector
+ *
+ * - Hilo que intenta conectar ACTIVAMENTE al peer remoto.
+ * - Solo intenta conectar cuando NO hay canal válido (comController.isValid() == false)
+ * - Si conecta, llama comController.setSocket(socket)
+ */
 public class CC implements Runnable {
 
     private final Controller2 comController;
@@ -25,13 +31,15 @@ public class CC implements Runnable {
         Socket socket;
 
         while (true) {
-            // sssolo conectar si NO hay conexión válida
+
+            // Solo conectar si NO hay conexión válida
             if (!comController.isValid()) {
 
                 socket = null;
 
+                // Modo 1 PC (localhost): elige el puerto "contrario" al que está escuchando el server
                 if (Objects.equals(HOST, "localhost") || Objects.equals(HOST, "127.0.0.1")) {
-                    // Modo 1 PC: conecto al puerto "que toca"
+
                     int port = comController.getAvailablePort();
                     try {
                         socket = new Socket("127.0.0.1", port);
@@ -43,7 +51,7 @@ public class CC implements Runnable {
                     }
 
                 } else {
-                    // Modo 2 PCs: pruebo mainPort y si falla auxPort
+                    // Modo 2 PCs: intenta mainPort y si falla intenta auxPort
                     try {
                         socket = new Socket(HOST, mainPort);
                         System.out.println("[ClientConnector] Conectado a " + HOST + ":" + mainPort);
@@ -59,12 +67,13 @@ public class CC implements Runnable {
                     }
                 }
 
-                // si conectó, lo paso al channel
+                // Si conectó, pasa el socket al Channel (vía controller)
                 if (socket != null && socket.isConnected()) {
                     comController.setSocket(socket);
                 }
 
             } else {
+                // Si ya hay conexión, duerme un poco
                 sleep(3000);
             }
         }

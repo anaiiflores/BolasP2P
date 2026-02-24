@@ -23,6 +23,7 @@ public class Channel implements Runnable {
     private HealthChannel healthChannel;
     private Thread readerThread;
     private Thread healthThread;
+    private volatile boolean running = false;
 
     public Channel(String ipRemota, Controller2 com) {
         this.ipRemota = ipRemota;
@@ -94,38 +95,32 @@ public class Channel implements Runnable {
         }
     }
 
-
     @Override
     public void run() {
         while (true) {
             try {
-                if (!isValid()) break;
+                if (!isValid()) break;//para que no se cierre y siga escuchando.
 
                 Object obj = in.readObject();
                 if (!(obj instanceof MsgDTO msg)) continue;
 
                 procesarMensaje(msg);
 
-            } catch (EOFException e) {
-                System.out.println("[comunications.channel.Channel] Conexión cerrada por el otro extremo");
-                break;
-            } catch (IOException e) {
-                System.out.println("[comunications.channel.Channel] Error IO leyendo: " + e.getMessage());
-                break;
-            } catch (ClassNotFoundException e) {
-                System.out.println("[comunications.channel.Channel] Clase no encontrada: " + e.getMessage());
+            } catch (Exception e) {
                 break;
             }
         }
 
+        com.onChannelDown();
+
         closeInternal();
-        System.out.println("[comunications.channel.Channel] Thread lector terminado");
+        System.out.println("[Channel] Thread lector terminado");
     }
 
     private void procesarMensaje(MsgDTO msg) {
         switch (msg.getHeader()) {
 
-            case 0: { //
+            case 0: {
                 BolaDTO bola = (BolaDTO) msg.getPayload();
                 com.introducirBola(bola);
                 break;

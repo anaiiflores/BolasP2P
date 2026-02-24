@@ -25,36 +25,29 @@ public class SC implements Runnable {
     @Override
     public void run() {
         while (true) {
+
             if (serverSocket == null) {
                 conectarPuerto();
             }
 
-            if (!comController.isValid()) {
-                try {
-                    Socket socket = serverSocket.accept();
-                    System.out.println("[ServerConnector] Conexión entrante: " + socket.getInetAddress());
+            try {
+                Socket socket = serverSocket.accept();
+                System.out.println("[ServerConnector] Conexión entrante: " + socket.getInetAddress());
 
-                    // si todavía no hay socket válido , lo usamos
-                    if (!comController.isValid()) {
-                        comController.setSocket(socket);
-                    } else {
-                        socket.close();
-                    }
-
-                } catch (IOException e) {
-                    System.out.println("[ServerConnector] Error en ServerSocket: " + e.getMessage());
-
-                    // si el ServerSocket se rompió, lo reiniciamos
-                    try {
-                        if (serverSocket != null) serverSocket.close();
-                    } catch (IOException ignored) {}
-                    serverSocket = null;
+                if (!comController.isValid()) {
+                    comController.setSocket(socket);
+                } else {
+                    socket.close();
                 }
-            } else {
-                sleep(3000);
+
+            } catch (IOException e) {
+                System.out.println("[ServerConnector] Error en ServerSocket: " + e.getMessage());
+                try { if (serverSocket != null) serverSocket.close(); } catch (IOException ignored) {}
+                serverSocket = null;
             }
         }
     }
+
 
     private void conectarPuerto() {
         try {

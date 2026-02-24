@@ -3,11 +3,6 @@ package view;
 import javax.swing.*;
 import java.awt.*;
 
-/**
- * MainFrame (vista):
- * - Contiene el GameView y una barra superior simple.
- * - NO contiene lógica de red/juego.
- */
 public class MainFrame extends JFrame {
 
     private final JButton btnSpawn = new JButton("LANZA");
@@ -17,6 +12,7 @@ public class MainFrame extends JFrame {
         super(title);
 
         setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+        //setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         setLayout(new BorderLayout());
 
         JPanel top = new JPanel(new FlowLayout(FlowLayout.CENTER));
