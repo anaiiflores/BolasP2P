@@ -10,8 +10,8 @@ import java.util.Enumeration;
 
 public class ControllerMain {
 
-    private static final String IP_EQUIPO_1 = "192.168.1.137";
-    private static final String IP_EQUIPO_2 = "192.168.1.217";
+    private static final String IP_EQUIPO_1 = "10.162.201.235";
+    private static final String IP_EQUIPO_2 = "10.162.201.74";
 
     private static final int MAIN_PORT = 5000;
     private static final int AUX_PORT  = 5001;
