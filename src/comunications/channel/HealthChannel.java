@@ -1,12 +1,15 @@
 package comunications.channel;
 
+
 public class HealthChannel implements Runnable {
 
     private final Channel channel;
+
     private volatile long ultimaRespuesta;
 
     private static final long TIMEOUT = 10_000;       // 10s
     private static final long CHECK_INTERVAL = 3_000; // cada 3s
+    private static final long WAIT_PONG = 2_000;      // espera 2s la respuesta
 
     public HealthChannel(Channel channel) {
         this.channel = channel;
@@ -15,10 +18,9 @@ public class HealthChannel implements Runnable {
 
     @Override
     public void run() {
-        while (!Thread.currentThread().isInterrupted()) {
-
-            // si no hay conexión válida, paramos (el Channel se encargará de reconectar con CC/SC)
-            if (!channel.isValid()) break;
+        while (true) {
+            // Si el channel ya no es válido, paramos
+            if (channel == null || !channel.isValid()) break;
 
             try {
                 Thread.sleep(CHECK_INTERVAL);
@@ -26,13 +28,20 @@ public class HealthChannel implements Runnable {
                 break;
             }
 
-            // mando ping
+            // 1) mando ping
             channel.comprobarConexion();
 
-            // compruebo timeout (sin sleep extra fijo)
+            // 2) espero un poco a que llegue el pong
+            try {
+                Thread.sleep(WAIT_PONG);
+            } catch (InterruptedException e) {
+                break;
+            }
+
+            // 3) si no hay respuesta, cierro
             long tiempoSinRespuesta = System.currentTimeMillis() - ultimaRespuesta;
             if (tiempoSinRespuesta > TIMEOUT) {
-                System.out.println("[Health] Sin respuesta " + (tiempoSinRespuesta / 1000) + "s -> cierro conexión");
+                System.out.println("[Health]  Sin respuesta " + (tiempoSinRespuesta / 1000) + "s -> cierro conexión");
                 channel.close();
                 break;
             }
@@ -41,7 +50,7 @@ public class HealthChannel implements Runnable {
         System.out.println("[Health] Thread terminado");
     }
 
-    /** Se llama cuando llega el MsgDTO header=2 (pong). */
+    /** Se llama cuando llega el comunications.MsgDTO code=2 (pong). */
     public synchronized void notifyHealthy() {
         this.ultimaRespuesta = System.currentTimeMillis();
     }
