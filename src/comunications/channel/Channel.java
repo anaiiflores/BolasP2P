@@ -1,7 +1,7 @@
 package comunications.channel;
 
-import comunications.MsgDTO;
 import comunications.Controller2;
+import comunications.MsgDTO;
 import model.dto.BolaDTO;
 import model.dto.SpriteDTO;
 
@@ -16,46 +16,43 @@ public class Channel implements Runnable {
     private final String ipRemota;
     private final Controller2 com;
 
-    private volatile Socket socket;
-    private volatile ObjectInputStream in;
-    private volatile ObjectOutputStream out;
+    private Socket socket;
+    private ObjectInputStream in;
+    private ObjectOutputStream out;
 
-    private volatile HealthChannel healthChannel;
-    private volatile Thread readerThread;
-    private volatile Thread healthThread;
+    private HealthChannel healthChannel;
+    private Thread readerThread;
+    private Thread healthThread;
 
-    private volatile boolean stopRequested = false;
-    private volatile boolean closing = false;
+    // indica si el canal está “montado” y operativo
+    private volatile boolean running = false;
 
     public Channel(String ipRemota, Controller2 com) {
         this.ipRemota = ipRemota;
         this.com = com;
     }
 
+    /** ¿Puedo usar el canal ahora mismo? */
     public synchronized boolean isValid() {
-        return socket != null && socket.isConnected() && !socket.isClosed() && out != null && in != null;
+        return running
+                && socket != null
+                && !socket.isClosed()
+                && in != null
+                && out != null;
     }
 
+    /** Llamado por SC o CC cuando consiguen un socket conectado */
     public synchronized void setSocket(Socket newSocket) {
-        if (stopRequested) {
-            try { if (newSocket != null) newSocket.close(); } catch (IOException ignored) {}
-            return;
-        }
-
+        // Si ya estoy conectado, rechazo la conexión nueva
         if (isValid()) {
-            try { if (newSocket != null) newSocket.close(); } catch (IOException ignored) {}
+            try { newSocket.close(); } catch (IOException ignored) {}
             return;
         }
 
-        // ✅ Anti “doble conexión”: si ya hay socket asignado (aunque no esté fully valid), rechazo el nuevo
-        if (socket != null && !socket.isClosed()) {
-            try { if (newSocket != null) newSocket.close(); } catch (IOException ignored) {}
-            return;
-        }
-
-        // Limpio restos (por si había streams viejos)
+        // Limpio cualquier resto anterior
         closeInternal();
 
+        // Si el socket no es usable, fuera
         if (newSocket == null || newSocket.isClosed() || !newSocket.isConnected()) {
             System.out.println("[Channel] Socket inválido en setSocket()");
             return;
@@ -64,25 +61,25 @@ public class Channel implements Runnable {
         this.socket = newSocket;
 
         try {
+            // IMPORTANTE: primero out y flush, luego in (para evitar deadlock)
             out = new ObjectOutputStream(socket.getOutputStream());
             out.flush();
             in = new ObjectInputStream(socket.getInputStream());
 
-            if (healthChannel == null) {
-                healthChannel = new HealthChannel(this);
-            }
+            running = true;
 
+            // Arranco reader solo una vez
             if (readerThread == null) {
                 readerThread = new Thread(this, "ChannelReader");
                 readerThread.start();
             }
 
-            if (healthThread == null) {
-                healthThread = new Thread(healthChannel, "HealthChannel");
-                healthThread.start();
-            }
+            // Arranco health solo una vez por conexión
+            healthChannel = new HealthChannel(this);
+            healthThread = new Thread(healthChannel, "HealthChannel");
+            healthThread.start();
 
-            System.out.println("[Channel] ✅ Listo (IP remota: " + ipRemota + ")");
+            System.out.println("[Channel] ✅ Conectado (IP remota: " + ipRemota + ")");
 
         } catch (IOException e) {
             System.out.println("[Channel] Error creando streams: " + e.getMessage());
@@ -96,12 +93,18 @@ public class Channel implements Runnable {
     public void lanzarBola(BolaDTO bolaDTO) { send(new MsgDTO(0, bolaDTO)); }
     public void lanzarSprite(SpriteDTO dto) { send(new MsgDTO(3, dto)); }
 
-    private synchronized void send(MsgDTO msg) {
-        if (!isValid()) return;
+    /** Envío seguro sin NPE: uso copia local de out */
+    private void send(MsgDTO msg) {
+        ObjectOutputStream localOut;
+
+        synchronized (this) {
+            if (!isValid()) return;
+            localOut = out; // copia local para evitar que se vuelva null a mitad
+        }
 
         try {
-            out.writeObject(msg);
-            out.flush();
+            localOut.writeObject(msg);
+            localOut.flush();
         } catch (IOException e) {
             System.out.println("[Channel] Error enviando: " + e.getMessage());
             closeInternal();
@@ -112,44 +115,54 @@ public class Channel implements Runnable {
     // ===== RECEPCIÓN =====
     @Override
     public void run() {
-        while (!stopRequested) {
+        while (true) {
+
+            ObjectInputStream localIn;
+
+            // si no hay canal válido, espero y sigo
+            synchronized (this) {
+                if (!running) {
+                    // si nunca hay running, el CC/SC lo pondrán con setSocket
+                    localIn = null;
+                } else if (!isValid()) {
+                    localIn = null;
+                } else {
+                    localIn = in; // copia local segura
+                }
+            }
+
+            if (localIn == null) {
+                sleepSilently(200);
+                continue;
+            }
+
             try {
-                if (!isValid()) {
-                    sleepSilently(200);
-                    continue;
+                Object obj = localIn.readObject();
+                if (obj instanceof MsgDTO msg) {
+                    procesarMensaje(msg);
                 }
 
-                Object obj = in.readObject();
-                if (!(obj instanceof MsgDTO msg)) continue;
-
-                procesarMensaje(msg);
-
             } catch (EOFException e) {
-                System.out.println("[Channel] Conexión cerrada por el otro extremo");
+                // el otro cerró limpio
                 closeInternal();
                 com.onChannelDown();
-                sleepSilently(300);
 
             } catch (IOException e) {
-                System.out.println("[Channel] Error IO leyendo: " + e.getMessage());
+                // se cayó la red o cerraron el socket
                 closeInternal();
                 com.onChannelDown();
-                sleepSilently(300);
 
             } catch (ClassNotFoundException e) {
                 System.out.println("[Channel] Clase no encontrada: " + e.getMessage());
             }
         }
-
-        closeInternal();
-        System.out.println("[Channel] Thread lector detenido (stopRequested)");
     }
 
     private void procesarMensaje(MsgDTO msg) {
         switch (msg.getHeader()) {
             case 0 -> com.introducirBola((BolaDTO) msg.getPayload());
-            case 1 -> send(new MsgDTO(2, null));
-            case 2 -> { if (healthChannel != null) healthChannel.notifyHealthy(); }
+            case 1 -> send(new MsgDTO(2, null)); // ping -> respondo pong
+            case 2 -> { if (healthChannel != null) healthChannel.notifyHealthy(); } // pong
             case 3 -> com.introducirSprite((SpriteDTO) msg.getPayload());
             default -> System.out.println("[Channel] Header desconocido: " + msg.getHeader());
         }
@@ -159,9 +172,11 @@ public class Channel implements Runnable {
         closeInternal();
     }
 
+    /** Cierra TODO de esta conexión. No mata el hilo reader; el hilo espera reconexión. */
     private synchronized void closeInternal() {
-        if (closing) return;
-        closing = true;
+        running = false;
+
+        if (healthThread != null) healthThread.interrupt();
 
         try { if (in != null) in.close(); } catch (IOException ignored) {}
         try { if (out != null) out.close(); } catch (IOException ignored) {}
@@ -171,7 +186,8 @@ public class Channel implements Runnable {
         out = null;
         socket = null;
 
-        closing = false;
+        healthThread = null;
+        healthChannel = null;
     }
 
     private static void sleepSilently(long ms) {
