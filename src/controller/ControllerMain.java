@@ -50,8 +50,6 @@ public class ControllerMain {
         // 3) Ahora sí: comunicaciones (arranca ChannelReader, etc.)
         this.comunicaciones = new Controller2(this, ipRemota, MAIN_PORT, AUX_PORT);
 
-        // movimiento inicial
-        controlador.spawnLocalBall();
         controlador.spawnLocalBall();
     }
 
