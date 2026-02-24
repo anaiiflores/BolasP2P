@@ -83,12 +83,17 @@ public class Channel implements Runnable {
         send(new MsgDTO(3, dto));
     }
 
-    private synchronized void send(MsgDTO msg) {
-        if (!isValid()) return;
+    private void send(MsgDTO msg) {
+        ObjectOutputStream localOut;
+
+        synchronized (this) {
+            if (!isValid()) return;
+            localOut = out;
+        }
 
         try {
-            out.writeObject(msg);
-            out.flush();
+            localOut.writeObject(msg);
+            localOut.flush();
         } catch (IOException e) {
             System.out.println("[comunications.channel.Channel] Error enviando: " + e.getMessage());
             closeInternal();
@@ -98,21 +103,27 @@ public class Channel implements Runnable {
     @Override
     public void run() {
         while (true) {
+
+            ObjectInputStream localIn;
+
+            synchronized (this) {
+                if (!isValid()) break;
+                localIn = in; // copia local segura
+            }
+
             try {
-                if (!isValid()) break;//para que no se cierre y siga escuchando.
-
-                Object obj = in.readObject();
-                if (!(obj instanceof MsgDTO msg)) continue;
-
-                procesarMensaje(msg);
-
-            } catch (Exception e) {
+                Object obj = localIn.readObject();
+                if (obj instanceof MsgDTO msg) {
+                    procesarMensaje(msg);
+                }
+            } catch (EOFException e) {
+                break;
+            } catch (IOException | ClassNotFoundException e) {
                 break;
             }
         }
 
         com.onChannelDown();
-
         closeInternal();
         System.out.println("[Channel] Thread lector terminado");
     }
@@ -151,6 +162,8 @@ public class Channel implements Runnable {
     }
 
     private synchronized void closeInternal() {
+        running = false;
+
         try { if (in != null) in.close(); } catch (IOException ignored) {}
         try { if (out != null) out.close(); } catch (IOException ignored) {}
         try { if (socket != null && !socket.isClosed()) socket.close(); } catch (IOException ignored) {}
