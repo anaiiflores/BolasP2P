@@ -1,14 +1,11 @@
 package comunications;
 
 import controller.ControllerMain;
+import comunications.channel.Channel;
 import comunications.connectors.CC;
 import comunications.connectors.SC;
-import comunications.channel.Channel;
 import model.dto.BolaDTO;
 import model.dto.SpriteDTO;
-
-
-
 
 import java.net.Socket;
 
@@ -24,6 +21,7 @@ public class Controller2 {
 
     public Controller2(ControllerMain master, String ipRemota, int mainPort, int auxPort) {
         this.master = master;
+
         this.localPort1 = mainPort;
         this.localPort2 = auxPort;
 
@@ -39,7 +37,9 @@ public class Controller2 {
         new Thread(clientConnector, "ClientConnector").start();
     }
 
-    public boolean isValid() { return channel.isValid(); }
+    public boolean isValid() {
+        return channel.isValid();
+    }
 
     public boolean isValid(Socket socket) {
         boolean ok = channel.isValid();
@@ -47,8 +47,11 @@ public class Controller2 {
         return ok;
     }
 
-    public void setSocket(Socket socket) { channel.setSocket(socket); }
+    public void setSocket(Socket socket) {
+        channel.setSocket(socket);
+    }
 
+    // Solo para localhost (si usas 2 puertos en un mismo PC)
     public int getAvailablePort() {
         while (!serverConnector.isConected()) {
             try { Thread.sleep(10); } catch (InterruptedException ignored) {}
@@ -65,7 +68,6 @@ public class Controller2 {
     }
 
     // ===== puente hacia juego =====
-
     public void introducirBola(BolaDTO bolaDTO) { master.introducirBola(bolaDTO); }
     public void lanzarBola(BolaDTO bolaDTO) { channel.lanzarBola(bolaDTO); }
 
