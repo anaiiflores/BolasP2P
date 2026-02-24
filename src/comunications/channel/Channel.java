@@ -24,7 +24,7 @@ public class Channel implements Runnable {
     private Thread readerThread;
     private Thread healthThread;
 
-    // indica si el canal está “montado” y operativo
+    // canal operativo
     private volatile boolean running = false;
 
     public Channel(String ipRemota, Controller2 com) {
@@ -32,10 +32,10 @@ public class Channel implements Runnable {
         this.com = com;
     }
 
-    /** ¿Puedo usar el canal ahora mismo? */
     public synchronized boolean isValid() {
         return running
                 && socket != null
+                && socket.isConnected()
                 && !socket.isClosed()
                 && in != null
                 && out != null;
@@ -43,16 +43,16 @@ public class Channel implements Runnable {
 
     /** Llamado por SC o CC cuando consiguen un socket conectado */
     public synchronized void setSocket(Socket newSocket) {
-        // Si ya estoy conectado, rechazo la conexión nueva
+
+        // Si ya tengo canal válido, rechazo el socket nuevo
         if (isValid()) {
             try { newSocket.close(); } catch (IOException ignored) {}
             return;
         }
 
-        // Limpio cualquier resto anterior
+        // Limpio restos anteriores
         closeInternal();
 
-        // Si el socket no es usable, fuera
         if (newSocket == null || newSocket.isClosed() || !newSocket.isConnected()) {
             System.out.println("[Channel] Socket inválido en setSocket()");
             return;
@@ -61,22 +61,22 @@ public class Channel implements Runnable {
         this.socket = newSocket;
 
         try {
-            // IMPORTANTE: primero out y flush, luego in (para evitar deadlock)
+            // IMPORTANTE: primero OUT + flush, luego IN (evita deadlocks con ObjectStreams)
             out = new ObjectOutputStream(socket.getOutputStream());
             out.flush();
             in = new ObjectInputStream(socket.getInputStream());
 
             running = true;
 
-            // Arranco reader solo una vez
+            // Reader permanente: se crea 1 vez y se queda esperando reconexiones
             if (readerThread == null) {
-                readerThread = new Thread(this, "ChannelReader");
+                readerThread = new Thread(this, "ChannelReader-" + ipRemota);
                 readerThread.start();
             }
 
-            // Arranco health solo una vez por conexión
+            // Health nuevo por cada conexión
             healthChannel = new HealthChannel(this);
-            healthThread = new Thread(healthChannel, "HealthChannel");
+            healthThread = new Thread(healthChannel, "HealthChannel-" + ipRemota);
             healthThread.start();
 
             System.out.println("[Channel] ✅ Conectado (IP remota: " + ipRemota + ")");
@@ -89,17 +89,17 @@ public class Channel implements Runnable {
     }
 
     // ===== ENVÍO =====
-    public void comprobarConexion() { send(new MsgDTO(1, null)); }
+    public void comprobarConexion() { send(new MsgDTO(1, null)); }        // PING
     public void lanzarBola(BolaDTO bolaDTO) { send(new MsgDTO(0, bolaDTO)); }
     public void lanzarSprite(SpriteDTO dto) { send(new MsgDTO(3, dto)); }
 
-    /** Envío seguro sin NPE: uso copia local de out */
+    /** Envío seguro: usa copia local de out para evitar null en mitad */
     private void send(MsgDTO msg) {
         ObjectOutputStream localOut;
 
         synchronized (this) {
             if (!isValid()) return;
-            localOut = out; // copia local para evitar que se vuelva null a mitad
+            localOut = out;
         }
 
         try {
@@ -107,28 +107,25 @@ public class Channel implements Runnable {
             localOut.flush();
         } catch (IOException e) {
             System.out.println("[Channel] Error enviando: " + e.getMessage());
+            // baja el canal y notifica
             closeInternal();
             com.onChannelDown();
         }
     }
 
     // ===== RECEPCIÓN =====
-
     @Override
     public void run() {
         while (true) {
 
             ObjectInputStream localIn;
 
-            // si no hay canal válido, espero y sigo
             synchronized (this) {
-                if (!running) {
-                    // si nunca hay running, el CC/SC lo pondrán con setSocket
-                    localIn = null;
-                } else if (!isValid()) {
+                // sin conexión: me duermo y espero a que setSocket() lo monte otra vez
+                if (!running || !isValid()) {
                     localIn = null;
                 } else {
-                    localIn = in; // copia local segura
+                    localIn = in;
                 }
             }
 
@@ -138,7 +135,7 @@ public class Channel implements Runnable {
             }
 
             try {
-                Object obj = localIn.readObject();
+                Object obj = localIn.readObject(); // bloqueante
                 if (obj instanceof MsgDTO msg) {
                     procesarMensaje(msg);
                 }
@@ -149,7 +146,7 @@ public class Channel implements Runnable {
                 com.onChannelDown();
 
             } catch (IOException e) {
-                // se cayó la red o cerraron el socket
+                // red caída / socket cerrado / etc.
                 closeInternal();
                 com.onChannelDown();
 
@@ -160,11 +157,24 @@ public class Channel implements Runnable {
     }
 
     private void procesarMensaje(MsgDTO msg) {
+        // ✅ IMPORTANTÍSIMO: si llega CUALQUIER cosa, hay actividad -> canal vivo
+        if (healthChannel != null) healthChannel.notifyHealthy();
+
         switch (msg.getHeader()) {
             case 0 -> com.introducirBola((BolaDTO) msg.getPayload());
-            case 1 -> send(new MsgDTO(2, null)); // ping -> respondo pong
-            case 2 -> { if (healthChannel != null) healthChannel.notifyHealthy(); } // pong
+
+            case 1 -> {
+                // me llegó ping -> respondo pong
+                send(new MsgDTO(2, null));
+            }
+
+            case 2 -> {
+                // me llegó pong -> vivo
+                if (healthChannel != null) healthChannel.notifyPong();
+            }
+
             case 3 -> com.introducirSprite((SpriteDTO) msg.getPayload());
+
             default -> System.out.println("[Channel] Header desconocido: " + msg.getHeader());
         }
     }
@@ -176,7 +186,13 @@ public class Channel implements Runnable {
     private synchronized void closeInternal() {
         running = false;
 
-        if (healthThread != null) healthThread.interrupt();
+        // ✅ Para health de verdad (no solo interrupt)
+        if (healthChannel != null) {
+            healthChannel.stop();
+        }
+        if (healthThread != null) {
+            healthThread.interrupt();
+        }
 
         try { if (in != null) in.close(); } catch (IOException ignored) {}
         try { if (out != null) out.close(); } catch (IOException ignored) {}
