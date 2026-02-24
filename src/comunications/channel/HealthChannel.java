@@ -5,9 +5,9 @@ public class HealthChannel implements Runnable {
     private final Channel channel;
     private volatile long ultimaRespuesta;
 
-    private static final long TIMEOUT = 10_000;
-    private static final long CHECK_INTERVAL = 3_000;
-    private static final long WAIT_PONG = 2_000;
+    private static final long TIMEOUT = 10_000;       // 10s
+    private static final long CHECK_INTERVAL = 3_000; // cada 3s
+    private static final long WAIT_PONG = 2_000;      // espera 2s la respuesta
 
     public HealthChannel(Channel channel) {
         this.channel = channel;
@@ -18,27 +18,38 @@ public class HealthChannel implements Runnable {
     public void run() {
         while (true) {
 
-            // ✅ Si no hay conexión, NO muere: espera
+            // ✅ Si no hay canal válido, NO MUERAS: espera a que vuelva conexión
             if (channel == null || !channel.isValid()) {
                 sleepSilently(300);
+                // reset para que al reconectar no salte timeout inmediato
+                ultimaRespuesta = System.currentTimeMillis();
                 continue;
             }
 
             sleepSilently(CHECK_INTERVAL);
 
-            channel.comprobarConexion(); // ping
+            // 1) ping
+            channel.comprobarConexion();
+
+            // 2) esperamos pong
             sleepSilently(WAIT_PONG);
 
-            long sinRespuesta = System.currentTimeMillis() - ultimaRespuesta;
-            if (sinRespuesta > TIMEOUT) {
-                System.out.println("[Health] Sin respuesta " + (sinRespuesta / 1000) + "s -> cierro y fuerzo reconexión");
+            // 3) si no hay respuesta, cerramos pero seguimos vivos
+            long tiempoSinRespuesta = System.currentTimeMillis() - ultimaRespuesta;
+            if (tiempoSinRespuesta > TIMEOUT) {
+                System.out.println("[Health] Sin respuesta " + (tiempoSinRespuesta / 1000) + "s -> cierro conexión y sigo esperando");
                 channel.close();
-                channel.notifyDown();     // 🔥 clave
+
+                // 🔥 si tu Channel tiene notifyDown() (como te pasé), úsalo:
+                // channel.notifyDown();
+
+                // y seguimos el while: CC/SC reconectan y health continúa
                 sleepSilently(500);
             }
         }
     }
 
+    /** Se llama cuando llega el MsgDTO pong */
     public synchronized void notifyHealthy() {
         this.ultimaRespuesta = System.currentTimeMillis();
     }

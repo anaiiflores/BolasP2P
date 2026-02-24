@@ -12,16 +12,12 @@ import java.net.Socket;
 public class Controller2 {
 
     private final ControllerMain master;
-
     private final Channel channel;
     private final CC clientConnector;
     private final SC serverConnector;
 
     private final int localPort1;
     private final int localPort2;
-
-    // evita duplicar reconexiones
-    private volatile boolean reconnecting = false;
 
     public Controller2(ControllerMain master, String ipRemota, int mainPort, int auxPort) {
         this.master = master;
@@ -45,41 +41,20 @@ public class Controller2 {
         return channel.isValid();
     }
 
-    /** ✅ arreglado: si adopta socket, devuelve el estado real */
     public boolean isValid(Socket socket) {
-        if (channel.isValid()) return true;
-
-        if (socket != null && socket.isConnected() && !socket.isClosed()) {
-            setSocket(socket);
-            return channel.isValid();
-        }
-        return false;
+        boolean ok = channel.isValid();
+        if (!ok) setSocket(socket);
+        return ok;
     }
 
     public void setSocket(Socket socket) {
         channel.setSocket(socket);
     }
 
-    /** 🔥 lo llama Channel/Health cuando cae */
-    public void onChannelDown() {
-        if (reconnecting) return;
-        reconnecting = true;
-
-        // No hace falta conectar aquí (CC/SC ya reintentan),
-        // solo evitamos spam y damos tiempo a que se restablezca.
-        new Thread(() -> {
-            while (!channel.isValid()) {
-                sleepSilently(500);
-            }
-            reconnecting = false;
-            System.out.println("[Controller2] ✅ Canal válido otra vez");
-        }, "Reconnector").start();
-    }
-
     // Solo para localhost (si usas 2 puertos en un mismo PC)
     public int getAvailablePort() {
         while (!serverConnector.isConected()) {
-            sleepSilently(10);
+            try { Thread.sleep(10); } catch (InterruptedException ignored) {}
         }
         int actual = serverConnector.getActualPort();
         return (actual == localPort2) ? localPort1 : localPort2;
@@ -87,13 +62,9 @@ public class Controller2 {
 
     public int getActualListenPort() {
         while (!serverConnector.isConected()) {
-            sleepSilently(10);
+            try { Thread.sleep(10); } catch (InterruptedException ignored) {}
         }
         return serverConnector.getActualPort();
-    }
-
-    private static void sleepSilently(long ms) {
-        try { Thread.sleep(ms); } catch (InterruptedException ignored) {}
     }
 
     // ===== puente hacia juego =====
@@ -102,4 +73,18 @@ public class Controller2 {
 
     public void introducirSprite(SpriteDTO dto) { master.introducirSprite(dto); }
     public void lanzarSprite(SpriteDTO dto) { channel.lanzarSprite(dto); }
+    private volatile boolean reconnecting = false;
+
+    public void onChannelDown() {
+        if (reconnecting) return;
+        reconnecting = true;
+
+        new Thread(() -> {
+            while (!isValid()) {
+                try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+            }
+            reconnecting = false;
+            System.out.println("[Controller2] ✅ Canal válido otra vez");
+        }, "Reconnector").start();
+    }
 }

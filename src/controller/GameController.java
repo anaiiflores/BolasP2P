@@ -23,14 +23,12 @@ public class GameController {
     private final ControllerMain master;
     private final String label;
 
+
     private final Random rnd = new Random();
     private final List<Ball> balls = Collections.synchronizedList(new ArrayList<>());
 
     private final Timer loopTimer;
     private long lastNanos = System.nanoTime();
-
-    // ✅ bolas tamaño fijo
-    private static final float BALL_R = 16f;
 
     // ===== SpriteSheet (pasa entre peers) =====
     private static final String SPRITE_PATH = "C:\\Users\\anair\\Documents\\BolasP2P\\src\\Resources\\pitufo.png";
@@ -50,18 +48,13 @@ public class GameController {
         this.master = master;
         this.label = label;
 
+        frame.setModeText(label);
         frame.setConnText("Conectando...");
         frame.getGamePanel().setBalls(balls);
 
+        // ✅ SOLO para que empiece en A (si quieres que empiece en B, cambia esto)
         if ("A".equals(label)) {
             crearSpriteLocal(50, 50, 4, 3);
-
-            new Timer(3000, e -> {
-                // si no hay sprite activo, crear otro
-                if (anim == null) {
-                    crearSpriteLocal(0, 50 + rnd.nextInt(120), 4, 3);
-                }
-            }).start();
         }
 
         frame.getBtnSpawn().addActionListener(this::onSpawnClicked);
@@ -79,7 +72,7 @@ public class GameController {
         if (world.width <= 10 || world.height <= 10) return;
 
         // ======================
-        // 1) Update bolas
+        // 1) Update bolas (igual)
         // ======================
         synchronized (balls) {
             for (int i = balls.size() - 1; i >= 0; i--) {
@@ -100,13 +93,16 @@ public class GameController {
         }
 
         // ======================
-        // 2) Update sprite y enviarlo
+        // 2) Update sprite (y pasarlo al otro peer)
         // ======================
         if (anim != null) {
             anim.update();
             moveSprite(world);
 
-            // ✅ mandar cuando ya salió por la derecha (entrada suave en el otro)
+            // ✅ Si sale por la derecha => LO MANDO AL OTRO PEER y desaparece aquí
+            int spriteW = anim.getFrameWidth();
+//modificarlo!!!
+// ✅ mandar cuando ya SALIÓ entero por la derecha
             if (spriteX >= world.width) {
                 SpriteDTO dto = new SpriteDTO(spriteY, spriteVx, spriteVy);
                 master.lanzarSprite(dto);
@@ -118,18 +114,22 @@ public class GameController {
             }
         }
 
+        // ✅ repaint al final
         frame.getGamePanel().repaint();
     }
 
     /**
-     * Rebota izquierda, arriba y abajo.
-     * Derecha = mandar al otro peer.
+     * Mueve el sprite y rebota con paredes ARRIBA/ABAJO e IZQUIERDA,
+     * pero NO rebota en DERECHA porque ahí lo enviamos al otro peer.
      */
     private void moveSprite(Rectangle2D.Float world) {
         spriteX += spriteVx;
         spriteY += spriteVy;
 
+        int spriteW = anim.getFrameWidth();
         int spriteH = anim.getFrameHeight();
+
+        int panelW = (int) world.width;
         int panelH = (int) world.height;
 
         // Rebote izquierda
@@ -146,6 +146,8 @@ public class GameController {
             spriteY = panelH - spriteH;
             spriteVy = -spriteVy;
         }
+
+        // ✅ No hacemos rebote derecha aquí (porque derecha = mandar)
     }
 
     private void crearSpriteLocal(int x, int y, int vx, int vy) {
@@ -160,6 +162,7 @@ public class GameController {
         spriteVx = vx;
         spriteVy = vy;
 
+        // pintar ya (por si acaso)
         frame.getGamePanel().setSprite(anim.getCurrentFrame(), spriteX, spriteY);
     }
 
@@ -175,21 +178,21 @@ public class GameController {
         spawnLocalBall();
     }
 
-    // ✅ bolas tamaño fijo
     public void spawnLocalBall() {
         Rectangle2D.Float world = frame.getGamePanel().getWorldBounds();
         if (world.width <= 10 || world.height <= 10) return;
 
-        float r = BALL_R;
+        float r = 10 + rnd.nextInt(14);
         float x = r + 2;
         float y = r + rnd.nextFloat() * (world.height - 2 * r);
 
-        float vx = 160f;
-        float vy = -60 + rnd.nextInt(121);
+        float vx = 120 + rnd.nextInt(160);
+        float vy = -80 + rnd.nextInt(161);
 
         balls.add(new Ball(x, y, r, vx, vy));
     }
 
+    /** Cuando llega bola desde el otro peer */
     public void introducirBola(BolaDTO dto) {
         if (dto == null) return;
 
@@ -197,7 +200,7 @@ public class GameController {
             Rectangle2D.Float world = frame.getGamePanel().getWorldBounds();
             if (world.width <= 10 || world.height <= 10) return;
 
-            float r = BALL_R; // ✅ fijo al llegar también
+            float r = dto.radio;
             float x = r + 2;
             float y = clamp(dto.posicionY, r, world.height - r);
 
@@ -208,6 +211,7 @@ public class GameController {
         });
     }
 
+    /** ✅ Cuando llega sprite desde el otro peer */
     public void introducirSprite(SpriteDTO dto) {
         if (dto == null) return;
 
@@ -215,7 +219,7 @@ public class GameController {
             Rectangle2D.Float world = frame.getGamePanel().getWorldBounds();
             if (world.width <= 10 || world.height <= 10) return;
 
-            int x = -SPRITE_FRAME_W; // ✅ entra suave desde fuera
+            int x = -SPRITE_FRAME_W; // ✅ fuera de pantalla para entrar suave
             int y = (int) clamp(dto.posicionY, 0, world.height - SPRITE_FRAME_H);
 
             int vx = (int) dto.velocidadX;
@@ -234,5 +238,4 @@ public class GameController {
 
     public void shutdown() {
         loopTimer.stop();
-    }
-}
+    }}

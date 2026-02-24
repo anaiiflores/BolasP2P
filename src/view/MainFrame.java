@@ -2,42 +2,44 @@ package view;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
 
+/**
+ * view.MainFrame (vista):
+ * - Contiene el GamePanel y un pequeño panel superior con estado.
+ * - No contiene lógica de red/bolas (eso va en el controller).
+ */
 
 public class MainFrame extends JFrame {
 
-    private final JButton btnSpawn = new JButton("LANZA");
+    private final JLabel lblMode = new JLabel("Modo: -");
+    private final JLabel lblConn = new JLabel("Conexión: -");
+    private final JButton btnSpawn = new JButton("Spawn local");
+
     private final GameView gamePanel;
 
     public MainFrame(String title, int w, int h) {
         super(title);
 
-        setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
-        addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosing(WindowEvent e) {
-                // Oculta la ventana pero deja la app viva (threads + reconexión)
-                setVisible(false);
-            }
-        });
-
+        setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         setLayout(new BorderLayout());
 
-        // ===== Barra superior =====
-        JPanel top = new JPanel(new FlowLayout(FlowLayout.CENTER));
-        top.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        top.setBackground(new Color(255, 243, 181)); // 🌼 amarillo pastel
+        // Barra superior
+        JPanel top = new JPanel(new BorderLayout());
+        top.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
 
-        btnSpawn.setFocusPainted(false);
-        btnSpawn.setBackground(new Color(255, 214, 102));
-        btnSpawn.setFont(btnSpawn.getFont().deriveFont(Font.BOLD, 14f));
-        btnSpawn.setBorder(BorderFactory.createEmptyBorder(6, 18, 6, 18));
+        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
+        left.setOpaque(false);
+        left.add(lblMode);
+        left.add(lblConn);
 
-        top.add(btnSpawn);
+        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        right.setOpaque(false);
+        right.add(btnSpawn);
 
-        // ===== Panel principal =====
+        top.add(left, BorderLayout.WEST);
+        top.add(right, BorderLayout.EAST);
+
+        // Panel principal
         gamePanel = new GameView(w, h);
 
         add(top, BorderLayout.NORTH);
@@ -56,5 +58,11 @@ public class MainFrame extends JFrame {
         return btnSpawn;
     }
 
-    public void setConnText(String txt) { }
+    public void setModeText(String txt) {
+        lblMode.setText("Modo: " + txt);
+    }
+
+    public void setConnText(String txt) {
+        lblConn.setText("Conexión: " + txt);
+    }
 }
