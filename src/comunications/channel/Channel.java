@@ -16,40 +16,38 @@ public class Channel implements Runnable {
     private final String ipRemota;
     private final Controller2 com;
 
-    private Socket socket;
-    private ObjectInputStream in;
-    private ObjectOutputStream out;
+    private volatile Socket socket;
+    private volatile ObjectInputStream in;
+    private volatile ObjectOutputStream out;
 
-    private HealthChannel healthChannel;
-    private Thread readerThread;
-    private Thread healthThread;
-
-    private volatile boolean running = false;
+    private volatile HealthChannel healthChannel;
+    private volatile Thread readerThread;
+    private volatile Thread healthThread;
 
     public Channel(String ipRemota, Controller2 com) {
         this.ipRemota = ipRemota;
         this.com = com;
     }
 
+    // ✅ estricto: si algo está medio muerto, esto debe ser false
     public synchronized boolean isValid() {
-        return running
-                && socket != null
+        return socket != null
                 && socket.isConnected()
                 && !socket.isClosed()
+                && !socket.isInputShutdown()
+                && !socket.isOutputShutdown()
                 && in != null
                 && out != null;
     }
 
-    /** Lo llaman SC o CC cuando consiguen un socket conectado */
     public synchronized void setSocket(Socket newSocket) {
-
-        // Si ya hay canal válido, rechazo la conexión nueva
+        // Si ya tengo uno válido, cierro el nuevo
         if (isValid()) {
             try { newSocket.close(); } catch (IOException ignored) {}
             return;
         }
 
-        // Limpio restos anteriores
+        // limpiar restos
         closeInternal();
 
         if (newSocket == null || newSocket.isClosed() || !newSocket.isConnected()) {
@@ -60,131 +58,130 @@ public class Channel implements Runnable {
         this.socket = newSocket;
 
         try {
-            // IMPORTANTÍSIMO: out + flush primero, luego in
+            // ✅ ORDEN SEGURO (evita deadlock ObjectStream)
             out = new ObjectOutputStream(socket.getOutputStream());
             out.flush();
             in = new ObjectInputStream(socket.getInputStream());
 
-            running = true;
-
-            // Reader permanente (se crea 1 vez)
-            if (readerThread == null) {
-                readerThread = new Thread(this, "ChannelReader-" + ipRemota);
-                readerThread.start();
-            }
-
-            // Health nuevo por cada conexión
+            // health
             healthChannel = new HealthChannel(this);
-            healthThread = new Thread(healthChannel, "HealthChannel-" + ipRemota);
+
+            // reader
+            readerThread = new Thread(this, "ChannelReader");
+            readerThread.start();
+
+            // health thread
+            healthThread = new Thread(healthChannel, "HealthChannel");
             healthThread.start();
 
-            // ✅ Marca actividad al conectar + ping inmediato (para validar ida/vuelta)
-            healthChannel.notifyHealthy();
-            comprobarConexion();
-
-            System.out.println("[Channel] ✅ Conectado (IP remota: " + ipRemota + ")");
+            System.out.println("[Channel] ✅ Listo (IP remota: " + ipRemota + ")");
 
         } catch (IOException e) {
-            // 👇 así no te saldrá "null"
-            System.out.println("[Channel] Error creando streams: " + e);
+            System.out.println("[Channel] Error creando streams: " + e.getMessage());
             closeInternal();
-            com.onChannelDown();
         }
     }
 
-    // ===== ENVÍO =====
-    public void comprobarConexion() { send(new MsgDTO(1, null)); } // PING
-    public void lanzarBola(BolaDTO bolaDTO) { send(new MsgDTO(0, bolaDTO)); }
-    public void lanzarSprite(SpriteDTO dto) { send(new MsgDTO(3, dto)); }
+    // ==========================
+    // ENVÍO
+    // ==========================
+    public void comprobarConexion() {
+        send(new MsgDTO(1, null)); // ping
+    }
 
-    private void send(MsgDTO msg) {
-        ObjectOutputStream localOut;
+    public void lanzarBola(BolaDTO bolaDTO) {
+        send(new MsgDTO(0, bolaDTO)); // bola
+    }
 
-        synchronized (this) {
-            if (!isValid()) return;
-            localOut = out;
-        }
+    public void lanzarSprite(SpriteDTO dto) {
+        send(new MsgDTO(3, dto)); // sprite
+    }
+
+    private synchronized void send(MsgDTO msg) {
+        if (!isValid()) return;
 
         try {
-            localOut.writeObject(msg);
-            localOut.flush();
+            out.writeObject(msg);
+            out.flush();
         } catch (IOException e) {
-            System.out.println("[Channel] Error enviando: " + e);
-            closeInternal();
-            com.onChannelDown();
+            System.out.println("[Channel] Error enviando: " + e.getMessage());
+            closeInternal();          // ✅ deja listo para reconectar
+            com.onChannelDown();      // opcional (log)
         }
     }
 
-    // ===== RECEPCIÓN =====
+    // ==========================
+    // LECTURA
+    // ==========================
     @Override
     public void run() {
         while (true) {
-
-            ObjectInputStream localIn;
-
-            synchronized (this) {
-                if (!running || !isValid()) localIn = null;
-                else localIn = in;
-            }
-
-            if (localIn == null) {
-                sleepSilently(200);
-                continue;
-            }
-
             try {
-                Object obj = localIn.readObject(); // bloqueante
-                if (obj instanceof MsgDTO msg) {
-                    procesarMensaje(msg);
-                }
+                if (!isValid()) break;
+
+                Object obj = in.readObject();
+                if (!(obj instanceof MsgDTO msg)) continue;
+
+                procesarMensaje(msg);
 
             } catch (EOFException e) {
-                closeInternal();
-                com.onChannelDown();
-
+                System.out.println("[Channel] Conexión cerrada por el otro extremo");
+                break;
             } catch (IOException e) {
-                closeInternal();
-                com.onChannelDown();
-
+                System.out.println("[Channel] Error IO leyendo: " + e.getMessage());
+                break;
             } catch (ClassNotFoundException e) {
-                System.out.println("[Channel] Clase no encontrada: " + e);
+                System.out.println("[Channel] Clase no encontrada: " + e.getMessage());
+                break;
+            } catch (Exception e) {
+                System.out.println("[Channel] Error inesperado: " + e.getMessage());
+                break;
             }
         }
+
+        closeInternal();          // ✅ CLAVE
+        com.onChannelDown();
+        System.out.println("[Channel] desconectado, esperando reconexión...");
     }
 
     private void procesarMensaje(MsgDTO msg) {
-
-        // ✅ CUALQUIER mensaje = actividad = canal vivo
-        if (healthChannel != null) healthChannel.notifyHealthy();
-
         switch (msg.getHeader()) {
-            case 0 -> com.introducirBola((BolaDTO) msg.getPayload());
 
-            case 1 -> {
-                // PING -> respondo PONG
-                send(new MsgDTO(2, null));
+            case 0: { // bola
+                BolaDTO bola = (BolaDTO) msg.getPayload();
+                com.introducirBola(bola);
+                break;
             }
 
-            case 2 -> {
-                // PONG -> marco pong
-                if (healthChannel != null) healthChannel.notifyPong();
+            case 1: // ping
+                send(new MsgDTO(2, null)); // pong
+                break;
+
+            case 2: // pong
+                if (healthChannel != null) healthChannel.notifyHealthy();
+                break;
+
+            case 3: { // sprite
+                SpriteDTO dto = (SpriteDTO) msg.getPayload();
+                com.introducirSprite(dto);
+                break;
             }
 
-            case 3 -> com.introducirSprite((SpriteDTO) msg.getPayload());
-
-            default -> System.out.println("[Channel] Header desconocido: " + msg.getHeader());
+            default:
+                System.out.println("[Channel] Header desconocido: " + msg.getHeader());
         }
     }
 
+    // ==========================
+    // CIERRE
+    // ==========================
     public synchronized void close() {
         closeInternal();
     }
 
     private synchronized void closeInternal() {
-        running = false;
-
-        // ✅ parar health de verdad
-        if (healthChannel != null) healthChannel.stop();
+        // parar hilos si existen
+        if (readerThread != null) readerThread.interrupt();
         if (healthThread != null) healthThread.interrupt();
 
         try { if (in != null) in.close(); } catch (IOException ignored) {}
@@ -195,11 +192,8 @@ public class Channel implements Runnable {
         out = null;
         socket = null;
 
+        readerThread = null;
         healthThread = null;
         healthChannel = null;
-    }
-
-    private static void sleepSilently(long ms) {
-        try { Thread.sleep(ms); } catch (InterruptedException ignored) {}
     }
 }

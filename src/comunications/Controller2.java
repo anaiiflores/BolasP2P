@@ -9,13 +9,6 @@ import model.dto.SpriteDTO;
 
 import java.net.Socket;
 
-/**
- * Controller2 = capa de comunicaciones.
- *
- * - SC: acepta conexiones entrantes (ServerSocket.accept)
- * - CC: intenta conectar activamente (new Socket)
- * - Channel: gestiona socket+streams+reader+health
- */
 public class Controller2 {
 
     private final ControllerMain master;
@@ -45,29 +38,18 @@ public class Controller2 {
         new Thread(clientConnector, "ClientConnector").start();
     }
 
-    public boolean isValid() {
-        return channel.isValid();
-    }
+    public boolean isValid() { return channel.isValid(); }
 
-    /**
-     * IMPORTANTE: synchronized para evitar carreras:
-     * - SC acepta y llama setSocket()
-     * - CC conecta y llama setSocket()
-     * Si entran “a la vez”, uno debe ganar y el otro cerrar su socket.
-     */
+    // ✅ synchronized para que CC y SC no “ganen” a la vez
     public synchronized void setSocket(Socket socket) {
         channel.setSocket(socket);
     }
 
     public void onChannelDown() {
-        System.out.println("[Controller2] Canal caído. CC reintentará conectar automáticamente.");
+        // solo log (pero te sirve para saber que CC/SC deberían reintentar)
+        System.out.println("[Controller2] Canal caído -> CC/SC reintentará");
     }
 
-    /**
-     * Solo para modo localhost:
-     * espera a que SC haya abierto un puerto y devuelve el “otro” para no conectar
-     * al mismo puerto que está escuchando.
-     */
     public int getAvailablePort() {
         while (!serverConnector.isConected()) {
             try { Thread.sleep(10); } catch (InterruptedException ignored) {}
@@ -76,21 +58,17 @@ public class Controller2 {
         return (actual == localPort2) ? localPort1 : localPort2;
     }
 
-    // ===== Puente juego <-> red =====
-
-    public void introducirBola(BolaDTO bolaDTO) {
-        master.introducirBola(bolaDTO);
+    public int getActualListenPort() {
+        while (!serverConnector.isConected()) {
+            try { Thread.sleep(10); } catch (InterruptedException ignored) {}
+        }
+        return serverConnector.getActualPort();
     }
 
-    public void lanzarBola(BolaDTO bolaDTO) {
-        channel.lanzarBola(bolaDTO);
-    }
+    // puente hacia juego
+    public void introducirBola(BolaDTO bolaDTO) { master.introducirBola(bolaDTO); }
+    public void lanzarBola(BolaDTO bolaDTO) { channel.lanzarBola(bolaDTO); }
 
-    public void introducirSprite(SpriteDTO dto) {
-        master.introducirSprite(dto);
-    }
-
-    public void lanzarSprite(SpriteDTO dto) {
-        channel.lanzarSprite(dto);
-    }
+    public void introducirSprite(SpriteDTO dto) { master.introducirSprite(dto); }
+    public void lanzarSprite(SpriteDTO dto) { channel.lanzarSprite(dto); }
 }

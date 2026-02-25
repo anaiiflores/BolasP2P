@@ -16,7 +16,6 @@ public class SC implements Runnable {
 
     public SC(Controller2 comController, int mainPort, int auxPort) {
         this.comController = comController;
-        this.serverSocket = null;
         this.mainPort = mainPort;
         this.auxPort = auxPort;
     }
@@ -24,30 +23,23 @@ public class SC implements Runnable {
     @Override
     public void run() {
         while (true) {
-
-            if (serverSocket == null) {
-                conectarPuerto();
-            }
+            if (serverSocket == null) conectarPuerto();
 
             try {
                 Socket socket = serverSocket.accept();
-                System.out.println("[ServerConnector] Conexión entrante: " + socket.getInetAddress());
 
-                // Si ya hay canal, cierro el socket entrante
+                // si ya hay canal, cierro este intento
                 if (comController.isValid()) {
                     try { socket.close(); } catch (IOException ignored) {}
                     continue;
                 }
 
-                // canal aún no válido -> lo monto
                 comController.setSocket(socket);
 
             } catch (IOException e) {
-                System.out.println("[ServerConnector] Error en ServerSocket: " + e.getMessage());
+                System.out.println("[ServerConnector] Error: " + e.getMessage());
                 try { if (serverSocket != null) serverSocket.close(); } catch (IOException ignored) {}
                 serverSocket = null;
-
-                // descanso corto para no hacer loop infinito si algo va mal
                 sleep(300);
             }
         }
@@ -65,17 +57,11 @@ public class SC implements Runnable {
                 throw new RuntimeException("No puedo abrir puertos " + mainPort + " ni " + auxPort, ex);
             }
         }
-
         System.out.println("[ServerConnector] Escuchando en " + actualPort);
     }
 
-    public boolean isConected() {
-        return serverSocket != null;
-    }
-
-    public int getActualPort() {
-        return actualPort;
-    }
+    public boolean isConected() { return serverSocket != null; }
+    public int getActualPort() { return actualPort; }
 
     private void sleep(long ms) {
         try { Thread.sleep(ms); } catch (InterruptedException ignored) {}
